@@ -1,0 +1,33 @@
+name: פרסום העורך ל-GitHub Pages
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+concurrency:
+  group: pages
+  cancel-in-progress: true
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: חילוץ קבצי העורך מה-ZIP
+        run: |
+          mkdir -p _site
+          for z in *.zip; do [ -f "$z" ] && unzip -o -q "$z" -d _site; done
+          find . -maxdepth 1 -mindepth 1 ! -name '.git' ! -name '.github' ! -name '_site' ! -name '*.zip' -exec cp -r {} _site/ \;
+          touch _site/.nojekyll
+          ls -la _site
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+      - id: deployment
+        uses: actions/deploy-pages@v4
