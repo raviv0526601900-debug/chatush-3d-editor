@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>סיור וירטואלי</title>
+<style>
+  :root { --ground: #9a948b; --ink: #f7f2eb; --dim: rgba(247, 242, 235, .64); --panel: rgba(43, 34, 29, .74); --line: rgba(247, 242, 235, .16); --accent: #c99662; --accent-ink: #1f160e; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--ground); color: var(--ink); overflow: hidden;
+    font: 15px/1.5 -apple-system, "Segoe UI", "Heebo", "Arimo", sans-serif; }
+  /* behind the picture: the scene's own colours, stretched and blurred, so nothing shows black */
+  #ambient { position: fixed; top: -8%; left: -8%; width: 116%; height: 116%; filter: blur(34px); pointer-events: none; }
+  #view { position: fixed; inset: 0; display: block; width: 100%; height: 100%; cursor: grab; touch-action: none; outline: none; }
+  #view.dragging { cursor: grabbing; }
+
+  .panel { position: fixed; background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
+    -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); }
+  #keys { bottom: 16px; inset-inline-start: 16px; padding: 12px 14px; max-width: calc(100vw - 32px); }
+  #keys h2 { margin: 0 0 8px; font-size: 13px; font-weight: 600; color: var(--dim); letter-spacing: .02em; }
+  #keys ul { margin: 0; padding: 0; list-style: none; display: grid; gap: 6px; }
+  #keys li { display: flex; align-items: center; gap: 10px; white-space: nowrap; }
+  kbd { display: inline-block; min-width: 26px; padding: 2px 7px; text-align: center; direction: ltr;
+    font: 600 12px/1.5 ui-monospace, Menlo, monospace; color: var(--ink);
+    background: rgba(247, 242, 235, .1); border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 6px; }
+  .keyset { display: inline-flex; gap: 3px; direction: ltr; min-width: 118px; }
+
+  #bar { top: 16px; inset-inline-end: 16px; padding: 6px; display: flex; gap: 6px; }
+  button { font: inherit; color: var(--ink); background: transparent; border: 1px solid transparent; border-radius: 8px;
+    padding: 6px 12px; cursor: pointer; }
+  button:hover { background: rgba(247, 242, 235, .1); }
+  button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  button[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); }
+
+  #placesPanel { top: 16px; inset-inline-start: 16px; padding: 10px 8px 8px; max-width: min(260px, calc(100vw - 32px)); max-height: calc(100vh - 32px); overflow: auto; }
+  #placesPanel h1 { margin: 0 8px 2px; font-size: 15px; font-weight: 700; color: var(--ink); }
+  #placesPanel .sub { margin: 0 8px 6px; font-size: 12px; color: var(--dim); }
+  #places { margin: 0; padding: 0; list-style: none; display: grid; gap: 2px; counter-reset: place; }
+  #places button { width: 100%; text-align: start; display: flex; gap: 8px; align-items: baseline; }
+  #places button::before { counter-increment: place; content: counter(place); font: 600 12px ui-monospace, Menlo, monospace; color: var(--dim); }
+  #places button[aria-current="true"] { background: rgba(247, 242, 235, .14); }
+  #places button[aria-current="true"]::before { color: var(--accent); }
+  [hidden] { display: none !important; }
+
+  #onward { position: fixed; bottom: 22px; left: 50%; transform: translateX(-50%); padding: 10px 18px;
+    background: var(--accent); color: var(--accent-ink); font-weight: 600; border-radius: 999px; box-shadow: 0 6px 24px rgba(0, 0, 0, .45); }
+  #onward:hover { background: #d8aa79; }
+
+  /* hold to walk: on a touch screen there is no keyboard */
+  #walk { position: fixed; bottom: 16px; inset-inline-start: 16px; display: none; flex-direction: column; gap: 8px; }
+  #walk button { width: 64px; height: 64px; border-radius: 50%; background: var(--panel); border: 1px solid var(--line);
+    font-size: 24px; line-height: 1; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; touch-action: none; }
+  #walk button:active { background: var(--accent); color: var(--accent-ink); }
+  @media (pointer: coarse) { #walk { display: flex; } #keys { display: none; } }
+
+  #loading { position: fixed; inset: 0; display: grid; place-items: center; background: var(--ground); transition: opacity .55s ease, background-color .55s ease; }
+  #loading.done { opacity: 0; pointer-events: none; }
+  #loading p { margin: 0; padding: 8px 16px; max-width: calc(100vw - 32px); text-align: center; color: var(--ink); background: var(--panel); border-radius: 999px; }
+  #loading.error p { border-radius: 14px; }
+
+  @media (max-width: 640px) { #keys { display: none; } #onward { bottom: 16px; } #placesPanel { top: 68px; max-height: 40vh; } }
+  body.clean .panel, body.clean #bar, body.clean #onward, body.clean #walk { display: none !important; }
+</style>
+<script type="importmap">
+{
+  "imports": {
+    "three": "./lib/three/three.module.js",
+    "three/addons/": "./lib/three/addons/",
+    "@sparkjsdev/spark": "./lib/spark/spark.module.min.js"
+  }
+}
+</script>
+<script src="../vendor/supabase/supabase.js"></script>
+</head>
+<body>
+<canvas id="ambient" aria-hidden="true"></canvas>
+<canvas id="view" tabindex="0" aria-label="סיור וירטואלי בנכס"></canvas>
+
+<nav id="placesPanel" class="panel" aria-label="חללים בנכס" hidden>
+  <h1 id="tourTitle"></h1>
+  <p id="tourSub" class="sub" hidden></p>
+  <ol id="places"></ol>
+</nav>
+
+<button id="onward" type="button" hidden></button>
+
+<div id="bar" class="panel">
+  <button id="auto" type="button" aria-pressed="false">סיור אוטומטי</button>
+  <button id="reset" type="button">חזרה להתחלה</button>
+</div>
+
+<div id="walk">
+  <button id="fwd" type="button" aria-label="החזק כדי ללכת קדימה">▲</button>
+  <button id="back" type="button" aria-label="החזק כדי ללכת אחורה">▼</button>
+</div>
+
+<div id="keys" class="panel">
+  <h2>איך מסיירים</h2>
+  <ul>
+    <li><span class="keyset"><kbd>W</kbd><kbd>S</kbd> <kbd>↑</kbd><kbd>↓</kbd></span> קדימה ואחורה</li>
+    <li><span class="keyset"><kbd>←</kbd><kbd>→</kbd></span> סיבוב ימינה ושמאלה</li>
+    <li><span class="keyset"><kbd>A</kbd><kbd>D</kbd></span> צעד הצידה</li>
+    <li><span class="keyset"><kbd>Shift</kbd></span> הליכה מהירה</li>
+    <li><span class="keyset"><kbd>Space</kbd></span> סיור אוטומטי</li>
+    <li><span class="keyset"><kbd>N</kbd><kbd>B</kbd></span> החלל הבא והקודם</li>
+    <li><span class="keyset">גרירת עכבר</span> הסתכלות לכל כיוון</li>
+    <li><span class="keyset"><kbd>H</kbd></span> הסתרת הכפתורים, רק הבית</li>
+  </ul>
+</div>
+
+<div id="loading"><p id="loadingText">טוען את הנכס…</p></div>
+
+<script type="module" src="./view.js"></script>
+</body>
+</html>
